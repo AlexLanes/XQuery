@@ -1,0 +1,99 @@
+xquery version "1.0" encoding "utf-8";
+
+(:: 
+  XQuery de transformação de um documento XML na sua versão correspondente em JSON
+    Versão Simples
+    
+  Considerações:
+    Existem valores do JSON que devem ser escapados, como por exemplo as aspas duplas = \"
+    A raiz do xml será sempre convertido para { }
+    Para criar Arrays de objetos ou valores os elementos raizes devem ter um nome em comum e aparecer mais de que 1 vez na mesma sequência
+    Não prevê atributos
+    Namespaces sao desconsiderados
+    
+  Exemplo de XML para montar todos os tipos possíveis. XML está Minified
+    <root><String>abc</String><Number1>11</Number1><Number2>-22</Number2><Number3>33.44</Number3><null1></null1><null2/><boolean1>True</boolean1><boolean2>false</boolean2><objeto><x>x</x><y>y</y><z>z</z></objeto><ArrayObjeto><a1>a1</a1><b1>b1</b1><c1>c1</c1></ArrayObjeto><ArrayObjeto><a2>a2</a2><b2>b2</b2><c2>c2</c2></ArrayObjeto><ArrayObjeto><teste>1</teste><teste>2</teste><teste>3</teste></ArrayObjeto><ArrayValores>abc</ArrayValores><ArrayValores>11</ArrayValores><ArrayValores></ArrayValores><ArrayValores>False</ArrayValores></root>
+  Transformado para
+    {"String":"abc","Number1":11,"Number2":-22,"Number3":33.44,"null1":null,"null2":null,"boolean1":true,"boolean2":false,"objeto":{"x":"x","y":"y","z":"z"},"ArrayObjeto":[{"a1":"a1","b1":"b1","c1":"c1"},{"a2":"a2","b2":"b2","c2":"c2"},{"teste":[1,2,3]}],"ArrayValores":["abc",11,null,false]}
+::)
+
+import module namespace functx="http://www.functx.com" at "../Library.xqy";
+declare variable $xml as element() external;
+
+declare function local:monta-array($elements as element()*) as xs:string {
+    concat(
+      '"',local-name($elements[1]),'":[',                                                   (: Abertura do Array :) 
+        
+        string-join(                                                                        (: Sequencia do Array :) 
+          if( functx:not-leaf-elements($elements[1]) )
+          then  for $element in $elements                                                   (: Se primeiro element do array tiver um ou mais descendentes será uma Sequencia de Objetos :)                      
+                  return
+                concat(
+                  "{",
+                    local:monta-sequencia($element/*),
+                  "}"
+                )
+          else  for $element in $elements                                                   (: Se não, será uma Sequencia de Valores :)                      
+                  return
+                substring-after( 
+                  local:monta-campo($element), 
+                  concat('"', local-name($elements[1]), '":') 
+                )
+        , ","),
+        
+      "]"                                                                                   (: Fechamento do Array :)   
+    )
+};
+
+declare function local:monta-objeto($element as element()) as xs:string {
+  string-join(
+    concat(                              
+      '"',local-name($element),'":{',                                                       (: Abertura do Objeto :)   
+        local:monta-sequencia($element/*),                                                  (: Sequencia do Objeto :)     
+      "}"                                                                                   (: Fechamento do Objeto :)   
+    )
+  , ",")
+};
+
+declare function local:monta-campo($element as element()) as xs:string {
+  let $nome   :=  local-name($element)
+  let $valor  :=  data($element)
+    return
+  concat(
+    '"',$nome,'":', if( matches($valor, "^(true)|(false)$", "i") )                          (: boolean :)
+                      then lower-case($valor)
+                    else if( matches($valor, "^-?\d+(([\.\dE\+-]*)|(\.\d+))?$", "i") )      (: number :)
+                      then xs:string($valor)
+                    else if( $valor )                                                       (: "string" :)
+                      then concat('"',$valor,'"')
+                    else "null"                                                             (: null :)
+    (: "$nome": :)  (: $valor :)
+  )
+};
+
+declare function local:monta-sequencia($xml as element()*) as xs:string {
+    string-join(
+        let $nomes := distinct-values(
+                        for $element in $xml
+                          return
+                        local-name($element)
+                      )
+        for $nome in $nomes
+          return
+        if( count($xml[local-name()=$nome]) gt 1 )                                          (: Testa se possui um Array na sequencia :)
+          then local:monta-array($xml[local-name()=$nome])                                  (: Possui mais de 1 elemento de mesmo nome em Sequencia :)
+        else if( not(functx:not-leaf-elements($xml[local-name()=$nome])) )                  (: Testa se é um elemento com descedentes :)
+          then local:monta-campo($xml[local-name()=$nome])                                  (: Não possui descedente(Tipo String|Boolean|Number|null) = Será montado um objeto correspondente :)
+        else local:monta-objeto($xml[local-name()=$nome])                                   (: Possui pelo menos um descendente(Tipo Objeto) = Será feito uma chamada recursiva a essa mesma função :)
+    , ",")
+};
+
+declare function local:xml-to-json($xml) as xs:string {
+  concat(
+    "{",
+      local:monta-sequencia($xml/*),                                                        (: Sequencia principal :)
+    "}"
+  )
+};
+
+local:xml-to-json($xml)
