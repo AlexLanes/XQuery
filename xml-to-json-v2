@@ -1,0 +1,109 @@
+xquery version "1.0" encoding "utf-8";
+
+(: 
+  Xquery de transformação de XML para JSON, devem ser criados elementos de nome array|object|string|boolean|number para a transformação correta.
+    Versão Específica 
+
+  Considerações:
+    Existem valores do JSON que devem ser escapados, como por exemplo as aspas duplas = \"
+    Não prevê nenhum outro atributo que não seja o @name
+    Se o @name não for informado, o nome do campo não é montado(
+      "Necessário para montar corretamente Arrays, Objetos e Valores"
+    )
+    Namespaces sao desconsiderados
+
+  Exemplo XML Completo Minified:
+    <object><string  name="Nome">Alex</string><STRING  name="Sobrenome">Angelo</STRING><number  name="Idade">25</number><number  name="Bitcoins">0.00001122</number><number  name="Dinheiro">1.0E+6</number><boolean name="Casado">False</boolean><object  name="Object"><string  name="S">abc</string><number  name="N">-33</number><boolean name="B">true</boolean><object  name="O"><string  name="S1">def</string><number  name="N1">-44.55</number><boolean name="B1">FALSE</boolean></object></object><array name="ArrayObjetos"><object><string  name="nome">Bruno</string></object><object><string  name="nome">Hudson</string></object><object><string  name="nome">Pedro</string></object><object><string  name="nome">Ian</string></object><array><string>abc123</string><number>9999</number><boolean>TRUE</boolean></array></array><array name="ArrayValores"><string>abc123</string><string/><number>9999</number><boolean>TRUE</boolean></array><array name="ArrayMisturado"><string>abc123</string><string/><object><string  name="nome">Bruno</string></object><number>9999</number><boolean>TRUE</boolean><array><number>1</number><string>a</string></array></array><object    name="Nulls"><string  name="S"></string><number  name="N"/><boolean name="B"/><object  name="O"></object><array   name="A"></array></object></object>
+  Resultado:
+    {"Nome":"Alex","Sobrenome":"Angelo","Idade":25,"Bitcoins":0.00001122,"Dinheiro":1.0E+6,"Casado":false,"Object":{"S":"abc","N":-33,"B":true,"O":{"S1":"def","N1":-44.55,"B1":false}},"ArrayObjetos":[{"nome":"Bruno"},{"nome":"Hudson"},{"nome":"Pedro"},{"nome":"Ian"},["abc123",9999,true]],"ArrayValores":["abc123",null,9999,true],"ArrayMisturado":["abc123",null,{"nome":"Bruno"},9999,true,[1,"a"]],"Nulls":{"S":null,"N":null,"B":null,"O":{},"A":[]}}
+:)
+
+declare variable $xml as element() external;
+
+declare function local:boolean($element as element()) as xs:string {
+  let $value := if( matches($element, "true", "i") )
+                  then  "true"
+                else if( matches($element, "false", "i") )
+                  then  "false"
+                else  "null"
+    return
+  if( $element[@name] ) 
+  then  concat( '"', $element/@name/string(), '":', $value )
+  else  $value
+};
+
+declare function local:number($element as element()) as xs:string {
+  let $value := if( fn:number($element) instance of xs:decimal )              (: 1 -2 3333.0 -4.44 0.0000005 :)
+                  then  string($element)
+                else if( string(fn:number($element)) = "NaN" )
+                  then  "null"
+                else if( fn:number($element) instance of xs:double )          (: 1.0E+1 1.0e-6 :)
+                  then  string($element)
+                else  "null"
+    return
+  if( $element[@name] ) 
+  then  concat( '"', $element/@name/string(), '":', $value )
+  else  $value
+};
+
+declare function local:string($element as element()) as xs:string {
+  let $value := if( string($element) ne "" ) 
+                then  concat( '"', string($element), '"' )
+                else  "null"
+    return
+  if( $element[@name] ) 
+  then  concat( '"', $element/@name/string(), '":', $value )
+  else  $value
+};
+
+declare function local:array($element as element()) as xs:string {
+  if( $element[@name] ) 
+  then  concat(                                                               (: Sequencia de Objetos :)
+          '"', $element/@name/string(), '":[', 
+            local:sequence( $element/* ), 
+          "]"
+        )
+  else  concat(                                                               (: Sequencia de Valores :)
+          "[", 
+            local:sequence( $element/* ), 
+          "]"
+        )
+};
+
+declare function local:object($element as element()) as xs:string {
+  if( $element[@name] ) 
+  then  concat(                                                               (: Objeto JSON :)
+          '"', $element/@name/string(), '":{', 
+            local:sequence( $element/* ), 
+          "}"
+        )
+  else  concat(                                                               (: Objeto Raíz :)
+          "{", 
+            local:sequence( $element/* ),                                     
+          "}"
+        )
+};
+
+declare function local:sequence($elements as element()*) as xs:string {
+  string-join(
+    for $element in $elements
+      return
+    if( matches(local-name($element), "^string$", "i") ) 
+      then local:string($element)
+    else if( matches(local-name($element), "^object$", "i") ) 
+      then local:object($element)
+    else if( matches(local-name($element), "^number$", "i") ) 
+      then local:number($element)
+    else if( matches(local-name($element), "^boolean$", "i") ) 
+      then local:boolean($element)
+    else if( matches(local-name($element), "^array$", "i") ) 
+      then local:array($element)
+    else ""
+  , ",")
+};
+
+declare function local:xml-to-json($xml) as xs:string {
+  local:sequence($xml)
+};
+
+local:xml-to-json($xml)
