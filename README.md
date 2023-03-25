@@ -1,2 +1,2 @@
 # XQuery
-Util XQuery
+Funções Util de XQuery
