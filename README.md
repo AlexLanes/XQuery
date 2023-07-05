@@ -1,2 +1,1 @@
-# XQuery
-Funções Util de XQuery
+# Funções criadas para conversão
